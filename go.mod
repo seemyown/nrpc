@@ -1,4 +1,4 @@
-module axcr.ru/axon/nrpc
+module github.com/seemyown/nrpc
 
 go 1.26.3
 
