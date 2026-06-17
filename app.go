@@ -82,7 +82,7 @@ func (a *App) Version() string {
 
 func (a *App) Agent() string {
 	if a.cfg.AppName == "" {
-		return "nrpc/" + a.Version()
+		return "go-nrpc/" + a.Version()
 	}
 	return a.cfg.AppName
 }
