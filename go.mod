@@ -1,4 +1,4 @@
-module github.com/seemyown/nrpc
+module gitlab.com/seemyown/nrpc
 
 go 1.26.3
 

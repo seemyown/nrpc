@@ -19,9 +19,8 @@ func Fail(err error) Response {
 	if err == nil {
 		return Response{Code: RPCInternalErrorCode}
 	}
-
-	var rpcErr RPCError
-	if !errors.As(err, &rpcErr) {
+	rpcErr, ok := errors.AsType[RPCError](err)
+	if !ok {
 		rpcErr = NewRPCError(RPCInternalErrorCode, err)
 	}
 
