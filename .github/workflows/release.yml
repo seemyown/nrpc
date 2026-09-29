@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.1.1). Leave empty to bump patch from the latest tag."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    # Skip duplicate release when the push that created the tag re-triggers nothing;
+    # only run on main merges / manual dispatch.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          latest_semver_tag() {
+            local t
+            t="$(git tag -l '[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
+            if [ -z "${t}" ]; then
+              t="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
+              t="${t#v}"
+            fi
+            printf '%s' "${t}"
+          }
+
+          bump_patch() {
+            local ver="$1"
+            IFS=. read -r MAJOR MINOR PATCH <<EOF
+          ${ver}
+          EOF
+            printf '%s.%s.%s' "${MAJOR}" "${MINOR}" "$((PATCH + 1))"
+          }
+
+          changelog_top_version() {
+            if [ ! -f CHANGELOG.md ]; then
+              return 0
+            fi
+            grep -m1 -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md \
+              | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/'
+          }
+
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            VERSION="${INPUT_VERSION#v}"
+            echo "Using user-specified version: ${VERSION}"
+          else
+            CHANGELOG_VER="$(changelog_top_version || true)"
+            if [ -n "${CHANGELOG_VER}" ] && ! git rev-parse -q --verify "refs/tags/${CHANGELOG_VER}" >/dev/null; then
+              VERSION="${CHANGELOG_VER}"
+              echo "Using untagged CHANGELOG version: ${VERSION}"
+            else
+              LATEST="$(latest_semver_tag)"
+              if [ -z "${LATEST}" ]; then
+                VERSION="0.1.0"
+                echo "No tags found; starting at ${VERSION}"
+              else
+                VERSION="$(bump_patch "${LATEST}")"
+                echo "Bumped ${LATEST} → ${VERSION}"
+              fi
+            fi
+          fi
+
+          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
+            echo "Tag ${VERSION} already exists — skipping release creation."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog notes
+        id: notes
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE="$(mktemp)"
+
+          if [ -f CHANGELOG.md ]; then
+            awk -v ver="$VERSION" '
+              BEGIN { grab=0 }
+              $0 ~ "^## \\[" ver "\\]" { grab=1; next }
+              grab && $0 ~ /^## \[/ { exit }
+              grab { print }
+            ' CHANGELOG.md > "$NOTES_FILE"
+          fi
+
+          if [ ! -s "$NOTES_FILE" ]; then
+            echo "Release ${VERSION}" > "$NOTES_FILE"
+          fi
+
+          {
+            echo "path=${NOTES_FILE}"
+            echo "notes<<EOF"
+            cat "$NOTES_FILE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create tag and GitHub Release
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          NOTES_FILE: ${{ steps.notes.outputs.path }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "${VERSION}" -m "Release ${VERSION}"
+          git push origin "refs/tags/${VERSION}"
+
+          gh release create "${VERSION}" \
+            --title "v${VERSION}" \
+            --notes-file "${NOTES_FILE}" \
+            --verify-tag

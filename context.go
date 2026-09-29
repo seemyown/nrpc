@@ -27,6 +27,7 @@ type Context interface {
 	RequestID() string
 
 	Context() context.Context
+	SetContext(ctx context.Context)
 
 	Set(key string, value any)
 	Get(key string, defaultValue ...any) any
@@ -169,6 +170,16 @@ func (c *defaultCtx) Context() context.Context {
 		return context.Background()
 	}
 	return c.ctx
+}
+
+// SetContext replaces the underlying context.Context, similar to Fiber's Ctx.SetContext.
+// Passing nil resets it to context.Background().
+func (c *defaultCtx) SetContext(ctx context.Context) {
+	if ctx == nil {
+		c.ctx = context.Background()
+		return
+	}
+	c.ctx = ctx
 }
 
 func (c *defaultCtx) Set(key string, value any) {
