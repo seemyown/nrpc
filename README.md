@@ -221,11 +221,22 @@ type Context interface {
     String(value string) error
     RequestID() string
     Context() context.Context
+    SetContext(ctx context.Context)
     Set(key string, value any)
     Get(key string, defaultValue ...any) any
     Next() error
     Status(status Status) Context
 }
+```
+
+Replace the request Go context from middleware (Fiber-style):
+
+```go
+app.Use(func(c nrpc.Context) error {
+    ctx := context.WithValue(c.Context(), userKey{}, user)
+    c.SetContext(ctx)
+    return c.Next()
+})
 ```
 
 ## Errors & status codes

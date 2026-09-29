@@ -12,6 +12,70 @@ import (
 	"github.com/seemyown/nrpc/middleware"
 )
 
+func TestSetContext(t *testing.T) {
+	type ctxKey struct{}
+
+	app := nrpc.New()
+	app.Use(func(c nrpc.Context) error {
+		ctx := context.WithValue(c.Context(), ctxKey{}, "from-middleware")
+		c.SetContext(ctx)
+		return c.Next()
+	})
+	_ = app.Handle("ctx.set", func(c nrpc.Context) error {
+		v, _ := c.Context().Value(ctxKey{}).(string)
+		if v != "from-middleware" {
+			t.Fatalf("context value: got %q", v)
+		}
+		return c.JSON(map[string]string{"v": v})
+	})
+
+	resp, err := app.Test(nrpc.NewTestRequest("ctx.set", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Status() != nrpc.StatusOK {
+		t.Fatalf("status %v err=%v", resp.Status(), resp.Error())
+	}
+}
+
+func TestSetContextNilResetsToBackground(t *testing.T) {
+	app := nrpc.New()
+	_ = app.Handle("ctx.nil", func(c nrpc.Context) error {
+		c.SetContext(nil)
+		if c.Context() == nil {
+			t.Fatal("expected non-nil context after SetContext(nil)")
+		}
+		return nil
+	})
+	resp, err := app.Test(nrpc.NewTestRequest("ctx.nil", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Status() != nrpc.StatusOK {
+		t.Fatalf("status %v", resp.Status())
+	}
+}
+
+func TestSetContextCancellationVisibleToHandler(t *testing.T) {
+	app := nrpc.New()
+	_ = app.Handle("ctx.cancel", func(c nrpc.Context) error {
+		ctx, cancel := context.WithCancel(c.Context())
+		c.SetContext(ctx)
+		cancel()
+		if err := c.Context().Err(); !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected canceled, got %v", err)
+		}
+		return nil
+	})
+	resp, err := app.Test(nrpc.NewTestRequest("ctx.cancel", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Status() != nrpc.StatusOK {
+		t.Fatalf("status %v", resp.Status())
+	}
+}
+
 func TestDuplicateRoute(t *testing.T) {
 	app := nrpc.New()
 	if err := app.Handle("user.get", func(c nrpc.Context) error { return nil }); err != nil {
