@@ -31,5 +31,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hooks: `BeforeRequest`, `AfterRequest`, `OnError`
 - Concurrency limiter: `WithConcurrency`
 
-[0.1.1]: https://github.com/seemyown/nrpc/compare/0.1.0...0.1.1
-[0.1.0]: https://github.com/seemyown/nrpc/releases/tag/0.1.0
+[0.1.1]: https://github.com/seemyown/nrpc/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/seemyown/nrpc/releases/tag/v0.1.0
