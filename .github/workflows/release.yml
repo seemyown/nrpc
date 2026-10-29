@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 0.1.1). Leave empty to bump patch from the latest tag."
+        description: "Version to release (e.g. v0.1.1). Leave empty to bump patch from the latest tag."
         required: false
         type: string
 
@@ -40,12 +40,19 @@ jobs:
 
           latest_semver_tag() {
             local t
-            t="$(git tag -l '[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
-            if [ -z "${t}" ]; then
-              t="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
+            t="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
+            if [ -n "${t}" ]; then
               t="${t#v}"
+            else
+              t="$(git tag -l '[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
             fi
             printf '%s' "${t}"
+          }
+
+          tag_exists() {
+            local ver="$1"
+            git rev-parse -q --verify "refs/tags/v${ver}" >/dev/null \
+              || git rev-parse -q --verify "refs/tags/${ver}" >/dev/null
           }
 
           bump_patch() {
@@ -69,7 +76,7 @@ jobs:
             echo "Using user-specified version: ${VERSION}"
           else
             CHANGELOG_VER="$(changelog_top_version || true)"
-            if [ -n "${CHANGELOG_VER}" ] && ! git rev-parse -q --verify "refs/tags/${CHANGELOG_VER}" >/dev/null; then
+            if [ -n "${CHANGELOG_VER}" ] && ! tag_exists "${CHANGELOG_VER}"; then
               VERSION="${CHANGELOG_VER}"
               echo "Using untagged CHANGELOG version: ${VERSION}"
             else
@@ -84,15 +91,17 @@ jobs:
             fi
           fi
 
-          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
-            echo "Tag ${VERSION} already exists — skipping release creation."
+          if tag_exists "${VERSION}"; then
+            echo "Tag v${VERSION} already exists — skipping release creation."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Extract changelog notes
         id: notes
@@ -127,17 +136,17 @@ jobs:
         if: steps.version.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
           NOTES_FILE: ${{ steps.notes.outputs.path }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git tag -a "${VERSION}" -m "Release ${VERSION}"
-          git push origin "refs/tags/${VERSION}"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "refs/tags/${TAG}"
 
-          gh release create "${VERSION}" \
-            --title "v${VERSION}" \
+          gh release create "${TAG}" \
+            --title "${TAG}" \
             --notes-file "${NOTES_FILE}" \
             --verify-tag
